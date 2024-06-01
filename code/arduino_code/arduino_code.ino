@@ -7,6 +7,9 @@
  use lcd display to monitor TDS, Temperature, Humidity, Soil moisture
 
 */
+
+// The code is under developing //
+
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <DHT.h>
