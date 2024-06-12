@@ -1,63 +1,311 @@
-/*
-
- This Project is developed by sanghani Krish.
- En no:- 216020311008
- Starting developing at 05/08/2023
- Uplode this code to Arduino mega
- use lcd display to monitor TDS, Temperature, Humidity, Soil moisture
-
-*/
-
-// The code is under developing //
-
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <DHT.h>
+#include <MsTimer2.h>
+#include <TimerOne.h>
+
+#define G1_TDS_TIME 4
+#define G2_TDS_TIME 5
+#define G3_TDS_TIME 6
+#define G4_TDS_TIME 7
+
+#define F1_TDS_TIME 8
+#define F2_TDS_TIME 9
+#define F3_TDS_TIME 10
+#define F4_TDS_TIME 11
+
+#define f1_TDS_TIME 12
+#define f2_TDS_TIME 13
+#define f3_TDS_TIME 14
+#define f4_TDS_TIME 15
+
+#define B1_TDS_TIME 16
+#define B2_TDS_TIME 17
+#define B3_TDS_TIME 18
+#define B4_TDS_TIME 19
+
+char serialData[] = "*T000H000M000A0000B0000C0000#";
+//T - Temperature 000   H - Humidity 000  M - Soil Moisture A - TDS1  B - TDS2  C - TDS3
+
+#define T_Address 2
+#define H_Address 6
+#define M_Address 10
+#define T1_Address 14
+#define T2_Address 19
+#define T3_Address 24
 
 #define DHTPIN 2          
 #define DHTTYPE DHT11 
-#define TDS_SENSOR_PIN A0
+#define TDS_SENSOR_PIN0 0
+#define TDS_SENSOR_PIN1 1
+#define TDS_SENSOR_PIN2 2
 #define NUM_SAMPLES 10
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);  
 DHT dht(DHTPIN, DHTTYPE);
 String msgString = "";
 unsigned char doneS = 0, msgStart = 0;
-float finalTds;
+float finalTDS = 0.0;
+float humidity = 0.0, temp = 0.0;
+unsigned char index = 0;
+volatile unsigned int serialTimeout = 0;
+unsigned char r1ONTime = 0, r2ONTime = 0, r3ONTime = 0, r4ONTime = 0, r5ONTime = 0, r6ONTime = 0, r7ONTime = 0;
+bool operateTimer = 0;
 
-int pin1 = 22;
 int pin2 = 23;
 
+volatile unsigned int timeCount = 0;
+volatile bool Germination = 0, Flowering = 0, fruiting = 0, Boosting = 0, waitProcess = 0;
+unsigned int userTDS = 0;
+
+unsigned int timingS[8] = {0,0,0,0,0,0,0,0};
+unsigned int maxTiming = 0, gIndex = 0;
+int pin1 = 5;
+
 void setup() {
-  Serial.begin(115200);
-  analogReference(DEFAULT);
-  lcd.init();
-  lcd.backlight();
-  dht.begin();
+  pinMode(30,OUTPUT);
+  pinMode(24,OUTPUT);
+  pinMode(26,OUTPUT);
+  pinMode(28,OUTPUT);
   pinMode(2,OUTPUT);
   pinMode(3,OUTPUT);
   pinMode(4,OUTPUT);
-  pinMode(5,OUTPUT);
   pinMode(6,OUTPUT);
   digitalWrite(2,HIGH);
   digitalWrite(3,HIGH);
   digitalWrite(4,HIGH);
-  digitalWrite(5,HIGH);
   digitalWrite(6,HIGH);
+  digitalWrite(30,LOW);
+  digitalWrite(24,LOW);
+  digitalWrite(26,LOW);
+  digitalWrite(28,LOW);
   pinMode(pin1,INPUT_PULLUP);
   pinMode(pin2,INPUT_PULLUP);
+  
+  Serial.begin(115200);
+  while(!Serial);
+  lcd.init();
+  lcd.backlight();
+  dht.begin();
+  
+  MsTimer2::set(100, operateProcess);
+  MsTimer2::start();
 }
 
-void loop() {
-  relaycontrol();
-  temptds();
-    if(doneS)
-    {
-        doneS = 0;
-      msgString = "";
-    }
-    float tdsValue = readTDS();
+void operateProcess()
+{
+  if(operateTimer)
+  {
+      timeCount--;
+      if(timeCount<=0)
+      {
+        waitProcess = 1;
+        digitalWrite(13,LOW);
+      }
+  }
+
+  /*
+  serialTimeout++;
+  if(serialTimeout>=4) 
+  {
+    Serial.println(serialData);
+    serialTimeout = 0;
+  }
+  */
+  
 }
+
+
+
+unsigned int getMaxValue(unsigned int arr[], int size) {
+  unsigned int maxVal = arr[0];  // Initialize maxVal with the first element
+
+  for (int i = 1; i < size; i++) {
+    if (arr[i] > maxVal) {
+      maxVal = arr[i];  // Update maxVal if the current element is greater
+    }
+  }
+
+  return maxVal;
+}
+
+void loop() 
+{
+
+    readTDS(index); index++; if(index>2) index = 0;
+    Temp_Humidity();
+    
+  if(doneS)
+  {
+      relaycontrol();
+      doneS = 0;
+      msgString = "";
+  }
+
+  if(operateTimer)
+  {
+      if(Germination == 1)
+      {
+        for(gIndex = 0; gIndex<=7; gIndex++) timingS[gIndex] = 0;
+        timingS[1] = G1_TDS_TIME * (userTDS);
+        timingS[5] = G2_TDS_TIME * (userTDS);
+        timingS[6] = G3_TDS_TIME * (userTDS);
+        timingS[7] = G4_TDS_TIME * (userTDS);
+        for(gIndex = 0; gIndex<=7; gIndex++)
+        {
+          Serial.print("G"); Serial.print(gIndex); Serial.print(" : "); Serial.println(timingS[gIndex]);
+        }
+        maxTiming = getMaxValue(timingS, 8);
+        Serial.print("Max Time : "); Serial.println(maxTiming);
+         
+        for(gIndex = 0; gIndex<=7; gIndex++)
+        {
+            waitProcess = 0;
+            switch(gIndex){
+             case 1:
+                   digitalWrite(24,timingS[1]);
+                   
+                   break;
+             case 5:
+                  digitalWrite(24,LOW);
+                  digitalWrite(26,timingS[5]);
+                  break;  
+             case 6:
+                  digitalWrite(26,LOW);
+                  digitalWrite(28,timingS[6]);
+                  break;  
+             case 7:
+                  digitalWrite(28,LOW);
+                  digitalWrite(30,timingS[7]);
+                  break;
+                                  
+            }
+            timeCount = timingS[gIndex] / 10;
+            if(timeCount>0) 
+            {
+              Serial.print("Relay ON: "); Serial.println(gIndex);
+              while(waitProcess==0) 
+              { 
+                  readTDS(index); index++; if(index>2) index = 0;
+                  Temp_Humidity();
+              }
+            }
+        }
+      }
+
+      if(Flowering == 1)
+      {
+        for(gIndex = 0; gIndex<=7; gIndex++) timingS[gIndex] = 0;
+        timingS[2] = F1_TDS_TIME * (userTDS);
+        timingS[5] = F2_TDS_TIME * (userTDS);
+        timingS[6] = F3_TDS_TIME * (userTDS);
+        timingS[7] = F4_TDS_TIME * (userTDS);
+        for(gIndex = 0; gIndex<=7; gIndex++)
+        {
+          Serial.print("F"); Serial.print(gIndex); Serial.print(" : "); Serial.println(timingS[gIndex]);
+        }
+        maxTiming = getMaxValue(timingS, 8);
+        Serial.print("Max Time : "); Serial.println(maxTiming);
+        
+        for(gIndex = 0; gIndex<=7; gIndex++)
+        {
+            waitProcess = 0; 
+            digitalWrite(13,HIGH);
+            
+            timeCount = timingS[gIndex] / 10;
+            if(timeCount>0) 
+            {
+              Serial.print("Relay ON: "); Serial.println(gIndex);
+              while(waitProcess==0) 
+              { 
+                  readTDS(index); index++; if(index>2) index = 0;
+                  Temp_Humidity();
+              }
+            }
+        }
+      }
+
+      if(fruiting == 1)
+      {
+        for(gIndex = 0; gIndex<=7; gIndex++) timingS[gIndex] = 0;
+        timingS[3] = f1_TDS_TIME * (userTDS);
+        timingS[5] = f2_TDS_TIME * (userTDS);
+        timingS[6] = f3_TDS_TIME * (userTDS);
+        timingS[7] = f4_TDS_TIME * (userTDS);
+        for(gIndex = 0; gIndex<=7; gIndex++)
+        {
+          Serial.print("f"); Serial.print(gIndex); Serial.print(" : "); Serial.println(timingS[gIndex]);
+        }
+        maxTiming = getMaxValue(timingS, 8);
+        Serial.print("Max Time : "); Serial.println(maxTiming);
+        
+        for(gIndex = 0; gIndex<=7; gIndex++)
+        {
+            waitProcess = 0; digitalWrite(13,HIGH);
+            
+            timeCount = timingS[gIndex] / 10;
+            if(timeCount>0) 
+            {
+              Serial.print("Relay ON: "); Serial.println(gIndex);
+              while(waitProcess==0) 
+              { 
+                  readTDS(index); index++; if(index>2) index = 0;
+                  Temp_Humidity();
+              }
+            }
+        }
+      }
+
+      if(Boosting == 1)
+      {
+        for(gIndex = 0; gIndex<=7; gIndex++) timingS[gIndex] = 0;
+        timingS[4] = B1_TDS_TIME * (userTDS);
+        timingS[5] = B2_TDS_TIME * (userTDS);
+        timingS[6] = B3_TDS_TIME * (userTDS);
+        timingS[7] = B4_TDS_TIME * (userTDS);
+        for(gIndex = 0; gIndex<=7; gIndex++)
+        {
+          Serial.print("B"); Serial.print(gIndex); Serial.print(" : "); Serial.println(timingS[gIndex]);
+        }
+        maxTiming = getMaxValue(timingS, 8);
+        Serial.print("Max Time : "); Serial.println(maxTiming);
+        
+        for(gIndex = 0; gIndex<=7; gIndex++)
+        {
+            waitProcess = 0; digitalWrite(13,HIGH);
+            
+            timeCount = timingS[gIndex] / 10;
+            if(timeCount>0) 
+            {
+              Serial.print("Relay ON: "); Serial.println(gIndex);
+              while(waitProcess==0) 
+              { 
+                  readTDS(index); index++; if(index>2) index = 0;
+                  Temp_Humidity();
+                
+              }
+            }
+        }
+      }
+      Serial.print("Process Completed!");
+       digitalWrite(30,LOW); 
+      operateTimer = 0;
+  }
+//Display_System();
+}
+
+/*void Display_System()
+{
+   lcd.clear();
+   lcd.print("Humidity: ");
+   lcd.print(humidity);
+   lcd.print("%");
+   lcd.setCursor(0, 1);
+   lcd.print("Temp: ");
+   lcd.print(temp);
+   lcd.print("C");
+   delay(360);
+}*/
 
 
 void serialEvent()
@@ -73,189 +321,82 @@ void serialEvent()
 
 void relaycontrol()
 {
-  if(finalTds < 100){ 
-    if (msgString == "G100")
-    {Serial.println("MSG=G100"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "F100")
-    {Serial.println("MSG=F100"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "f100")
-    {Serial.println("MSG=f100"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "B100")
-    {Serial.println("MSG=B100"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    }        
-  if(finalTds < 200){ 
-    if (msgString == "G200")
-    {Serial.println("MSG=G200"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "F200")
-    {Serial.println("MSG=F200"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "f200")
-    {Serial.println("MSG=f200"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "B200")
-    {Serial.println("MSG=B200"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    }        
-  if(finalTds < 300){ 
-    if (msgString == "G300")
-    {Serial.println("MSG=G300"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "F300")
-    {Serial.println("MSG=F300"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "f300")
-    {Serial.println("MSG=f300"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "B300")
-    {Serial.println("MSG=B300"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    }        
-  if(finalTds < 400){ 
-    if (msgString == "G400")
-    {Serial.println("MSG=G400"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "F400")
-    {Serial.println("MSG=F400"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "f400")
-    {Serial.println("MSG=f400"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "B400")
-    {Serial.println("MSG=B400"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    }        
-  if(finalTds < 500){ 
-    if (msgString == "G500")
-    {Serial.println("MSG=G500"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "F500")
-    {Serial.println("MSG=F500"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "f500")
-    {Serial.println("MSG=f500"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "B500")
-    {Serial.println("MSG=B500"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    }        
-  if(finalTds < 600){ 
-   if (msgString == "G600")
-    {Serial.println("MSG=G600"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "F600")
-    {Serial.println("MSG=F600"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "f600")
-    {Serial.println("MSG=f600"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "B600")
-    {Serial.println("MSG=B600"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    }        
-  if(finalTds < 700){ 
-    if (msgString == "G700")
-    {Serial.println("MSG=G700"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "F700")
-    {Serial.println("MSG=F700"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "f700")
-    {Serial.println("MSG=f700"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "B700")
-    {Serial.println("MSG=B700"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    }        
-  if(finalTds < 800){ 
-    if (msgString == "G800")
-    {Serial.println("MSG=G800"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "F800")
-    {Serial.println("MSG=F800"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "f800")
-    {Serial.println("MSG=f800"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "B800")
-    {Serial.println("MSG=B800"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    }        
-  if(finalTds < 900){ 
-    if (msgString == "G900")
-    {Serial.println("MSG=G900"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "F900")
-    {Serial.println("MSG=F900"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "f900")
-    {Serial.println("MSG=f900"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "B900")
-    {Serial.println("MSG=B900"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    }             
-  if(finalTds < 1000){ 
-    if (msgString == "G1000")
-    {Serial.println("MSG=G1000"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "F1000")
-    {Serial.println("MSG=F1000"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "f1000")
-    {Serial.println("MSG=f1000"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "B1000")
-    {Serial.println("MSG=B1000"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    }             
-  if(finalTds < 1100){ 
-    if (msgString == "G1100")
-    {Serial.println("MSG=G1100"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "F1100")
-    {Serial.println("MSG=F1100"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "f1100")
-    {Serial.println("MSG=f1100"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "B1100")
-    {Serial.println("MSG=B1100"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    }             
-  if(finalTds < 1200){ 
-  if (msgString == "G1200")
-    {Serial.println("MSG=G1200"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "F1200")
-    {Serial.println("MSG=F1200"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "f1200")
-    {Serial.println("MSG=f1200"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "B1200")
-    {Serial.println("MSG=B1200"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    }                            
-  if(finalTds < 1300){ 
-    if (msgString == "G1300")
-    {Serial.println("MSG=G1300"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "F1300")
-    {Serial.println("MSG=F1300"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "f1300")
-    {Serial.println("MSG=f1300"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "B1300")
-    {Serial.println("MSG=B1300"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    }             
-  if(finalTds < 1400){ 
-    if (msgString == "G1400")
-    {Serial.println("MSG=G1400"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "F1400")
-    {Serial.println("MSG=F1400"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "f1400")
-    {Serial.println("MSG=f1400"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "B1400")
-    {Serial.println("MSG=B1400"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    }                  
-  if(finalTds < 1500){ 
-    if (msgString == "G1500")
-    {Serial.println("MSG=G1500"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "F1500")
-    {Serial.println("MSG=F1500"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "f1500")
-    {Serial.println("MSG=f1500"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    if (msgString == "B1500")
-    {Serial.println("MSG=B1500"); Serial.println("relay1 on"); delay(5000); Serial.println("relay1 off"); delay(100); Serial.println("relay2 on"); delay(8000); Serial.println("relay2 off"); delay(100);doneS = 1;}
-    }                                                                                                                                                                                             
+  if(finalTDS < 100)
+  {
+    userTDS = (msgString[1]- 48) * 1000 + (msgString[2] - 48) * 100 + (msgString[3] - 48) * 10 + (msgString[4] - 48);
+    if(msgString[0] == 'G') 
+    {
+      Serial.println("MSG = "+msgString);
+      operateTimer = 1; Germination = 1; Flowering = 0; fruiting = 0; Boosting = 0;
+    }
+    if(msgString[0] == 'F') 
+    {
+      Serial.println("MSG = "+msgString);
+      r1ONTime = 5; r2ONTime = 3; r3ONTime = 2; r4ONTime = 0; r5ONTime = 0;
+      operateTimer = 1; Germination = 0; Flowering = 1; fruiting = 0; Boosting = 0;
+    }
+    if(msgString[0] == 'f') 
+    {
+      Serial.println("MSG = "+msgString);
+      r1ONTime = 5; r2ONTime = 3; r3ONTime = 2; r4ONTime = 0; r5ONTime = 0;
+      operateTimer = 1; Germination = 0; Flowering = 0; fruiting = 1; Boosting = 0;
+    }
+    if(msgString[0] == 'B') 
+    {
+      Serial.println("MSG = "+msgString);
+      r1ONTime = 5; r2ONTime = 3; r3ONTime = 2; r4ONTime = 0; r5ONTime = 0;
+      operateTimer = 1; Germination = 0; Flowering = 0; fruiting = 0; Boosting = 1;
+    }
+  }
 }
 
-float readTDS() {
-  float tdsSum = 0.0;
+void readTDS(unsigned char channel) {
+  float tdsSum = 0.0, tdsValue = 0.0;
+  unsigned int averageTDS = 0;
+  int sensorValue = 0;
+
     for (int i = 0; i < NUM_SAMPLES; i++) {
-    int sensorValue = analogRead(TDS_SENSOR_PIN);
-    float tdsValue = sensorValue * (5.0 / 1023.0) * (1000.0 / 3.0); 
+    sensorValue = analogRead(channel);
+    tdsValue = sensorValue * (5.0 / 1023.0) * (1000.0 / 3.0); 
     tdsSum += tdsValue; 
   }
-  float averageTDS = tdsSum / NUM_SAMPLES;
-  finalTds = averageTDS;
-    return averageTDS;
-   // Serial.println(finalTds);
+  averageTDS = (unsigned int)(tdsSum / NUM_SAMPLES);
+
+  switch(channel)
+  {
+    case 0: serialData[T1_Address]   = averageTDS/1000%10 + 48;
+            serialData[T1_Address+1] = averageTDS/100%10 + 48;
+            serialData[T1_Address+2] = averageTDS/10%10 + 48;
+            serialData[T1_Address+3] = averageTDS/1%10 + 48;
+            break;
+    case 1: serialData[T2_Address]   = averageTDS/1000%10 + 48;
+            serialData[T2_Address+1] = averageTDS/100%10 + 48;
+            serialData[T2_Address+2] = averageTDS/10%10 + 48;
+            serialData[T2_Address+3] = averageTDS/1%10 + 48;
+            break;
+    case 2: serialData[T3_Address]   = averageTDS/1000%10 + 48;
+            serialData[T3_Address+1] = averageTDS/100%10 + 48;
+            serialData[T3_Address+2] = averageTDS/10%10 + 48;
+            serialData[T3_Address+3] = averageTDS/1%10 + 48;
+            break;
+  }
+
 }
 
-void temptds()
+void Temp_Humidity()
 {
-  float humidity = dht.readHumidity();
-  float temperature = dht.readTemperature();
-  lcd.clear();
-  lcd.print("Humidity: ");
-  lcd.print(humidity);
-  lcd.print("%");
-  lcd.setCursor(0, 1);
-  lcd.print("Temp: ");
-  lcd.print(temperature);
-  lcd.print("C");
- // Serial.println(temperature);
-  delay(560);
-  lcd.clear();
-  lcd.print("WATER TDS: ");
-  lcd.print(finalTds);
-  delay(560);
+  unsigned int humidity = 0, temp = 0;
+  humidity = dht.readHumidity();
+  temp = dht.readTemperature();
+  serialData[H_Address]    = humidity/100%10 + 48;
+  serialData[H_Address+1]  = humidity/10%10 + 48;
+  serialData[H_Address+2]  = humidity/1%10 + 48;
+
+  serialData[T_Address]    = temp/100%10 + 48;
+  serialData[T_Address+1]  = temp/10%10 + 48;
+  serialData[T_Address+2]  = temp/1%10 + 48;
+  
+    
 }
 
 
